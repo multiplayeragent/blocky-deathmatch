@@ -1,0 +1,21 @@
+{
+  "name": "Blocky Deathmatch",
+  "genre": "shooter",
+  "dim": "3D",
+  "mode": "Versus",
+  "players": "2–8",
+  "hook": "A first-person arena made of plain blocks.",
+  "how": "Run, jump and shoot in a small block arena. Climb the crates to the middle platform, grab health packs that come back on a timer, and be first to 15 frags.",
+  "controls": "WASD and mouse, click to shoot, Space to jump. On a phone: left thumb moves, drag to look, FIRE shoots",
+  "uses": [
+    ["Leaderboard", "The most frags anyone has scored in one match."],
+    ["Host-run rounds", "One player's browser keeps the frags, the timer and the winner; if it leaves, the next player takes over."],
+    ["Bots", "Bots run, aim and shoot until enough people join."],
+    ["Live sync", "Every player moves and shoots for everyone at once."]
+  ],
+  "ideas": [
+    "Add a rocket launcher with splash damage",
+    "Set the arena on a moving train",
+    "Add a capture-the-flag mode"
+  ]
+}
