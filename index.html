@@ -30,7 +30,7 @@
   #help { top: 64%; left: 0; right: 0; text-align: center; font-size: 15px; font-weight: 700; opacity: .95; transition: opacity 1s; }
   #net { bottom: max(10px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .85; white-space: nowrap; }
   .screen { position: fixed; inset: 0; display: grid; place-items: center; background: #0b1530a0; }
-  .card { width: min(380px, 90vw); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 16px; background: #18224a; border: 1px solid #ffffff2a; text-align: center; }
+  .card { box-sizing: border-box; width: min(422px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; padding: 20px; border-radius: 16px; background: #18224a; border: 1px solid #ffffff2a; text-align: center; }
   .card h2 { margin: 0 0 6px; font-size: 24px; }
   .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ffd23f; text-align: left; }
   .card ol { margin: 0; padding-left: 24px; font-size: 14px; text-align: left; }
@@ -380,8 +380,9 @@ function placeView(id, color, name, s, bot, dt) {
 }
 function syncViews(dt) {
   const seen = new Set();
+  const live = new Set(livePlayers()); // a closed tab's entity lingers ~30s: draw only live players
   for (const [id, p] of Object.entries(S.entities.players || {})) {
-    if (id === net.sessionId) continue;
+    if (id === net.sessionId || !live.has(id)) continue;
     const s = cached("p:" + id, p.p, null); if (!s) continue;
     seen.add(id); placeView(id, p.c || "#ccc", p.n || "Player", s, false, dt);
   }
@@ -521,7 +522,7 @@ function takePack(i, who) {
 
 // ── BOTS (HOST) ─────────────────────────────────────────────────────────────────────
 function botList() {
-  if (!isHost()) return cached("bots", S.shared.bots, []);
+  if (!isHost() || !host.wasHost) return cached("bots", S.shared.bots, []); // not adopted yet: host.bots may be leftovers from an earlier turn as host
   const r = (n) => Math.round(n * 100) / 100;
   return [...host.bots.values()].map((b) => ({ i: b.id, n: b.name, c: b.color, x: r(b.x), y: r(b.y), z: r(b.z), w: r(b.yaw), t: r(b.pitch), a: b.alive ? 1 : 0, h: Math.round(b.hp), s: b.seq, e: b.end ? [r(b.end.x), r(b.end.y), r(b.end.z)] : 0 }));
 }
@@ -701,6 +702,7 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 let board = null, boardFor = -1, startedAt = performance.now(), lastFeed = "";
+let dropped = false; // true while the connection is down: the HUD keeps showing "Reconnecting…"
 function hud(m, now) {
   const feed = m.feed.map(([a, b, h]) => `<div>${esc(a)} <span style="color:#ff4d6d">▸</span> ${esc(b)}${h ? " ◎" : ""}</div>`).join("");
   if (feed !== lastFeed) $("feed").innerHTML = lastFeed = feed;
@@ -712,7 +714,7 @@ function hud(m, now) {
   $("msg").textContent = !me.alive && me.killer && m.phase === "play" ? `Fragged by ${me.killer} · back in ${Math.max(1, Math.ceil((me.respawnAt - now) / 1000))}` : "";
   $("help").style.opacity = me.joined && now - startedAt < 8000 ? 1 : 0;
   const n = livePlayers().length;
-  $("net").textContent = net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the match" : ""}`;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : dropped ? "Reconnecting…" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the match" : ""}`;
   $("start").hidden = m.phase !== "play" || (me.joined && (touchUI || locked || noLock));
   $("over").hidden = m.phase !== "over";
   if (m.phase === "over") {
@@ -736,11 +738,12 @@ function showBoard(m) {
 }
 $("again").onclick = () => { const m = match(); if (m && m.phase === "over") { me.ready = m.id; net.me.set("rdy", m.id); } };
 
-/** Two players picked the same color at once (the joiner's first state can be empty): the later sessionId picks again. */
+/** Two players picked the same color at once (the joiner's first state can be empty): the later sessionId picks again.
+ *  A bot wearing my color counts too. */
 function fixColor() {
-  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId);
-  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId)) return;
-  const taken = new Set(others.map(([, p]) => p.c));
+  const others = Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId), botColors = botList().map((b) => b.c);
+  if (!others.some(([id, p]) => p.c === myColor && id < net.sessionId) && !botColors.includes(myColor)) return;
+  const taken = new Set([...others.map(([, p]) => p.c), ...botColors]);
   myColor = COLORS.find((c) => !taken.has(c)) || myColor; net.me.set("c", myColor); gunStripe.material.color.set(myColor);
 }
 
@@ -794,7 +797,7 @@ document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: fal
 let last = performance.now(), lastHb = 0, lastHud = 0;
 const fly = { pos: new THREE.Vector3(MID.x, 14, MID.z + 20), look: new THREE.Vector3(MID.x, 1, MID.z), focus: null, focusAt: 0, a: 0 };
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // never negative: the first frame can be stamped before `last`
   if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); fixColor(); }
   if (isHost()) hostTick(dt, now); else host.wasHost = false;
   const m = match();
@@ -857,9 +860,10 @@ function attractCamera(dt, now) {
     if (msg.to === net.sessionId) hurtMe(dmg, by, msg.h); else if (isHost() && host.bots.has(msg.to)) hurtBot(msg.to, dmg, by, msg.h);
   });
   net.on("pack", (msg, from) => { if (isHost() && msg) takePack(+msg.i, from); });
-  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  net.onDisconnect(() => { dropped = true; $("net").textContent = "Reconnecting…"; });
+  net.onReconnect(() => { dropped = false; });
   if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
-  const taken = new Set(Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c));
+  const taken = new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c), ...botList().map((b) => b.c)]);
   myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
   gunStripe.material.color.set(myColor);
   net.me.set({ n: myName, c: myColor, hb: Date.now() });
