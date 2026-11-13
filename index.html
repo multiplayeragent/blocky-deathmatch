@@ -42,6 +42,7 @@
   #touch button.on { background: #ffffff55; }
   #fire { right: max(18px, env(safe-area-inset-right)); bottom: max(26px, env(safe-area-inset-bottom)); width: 92px; height: 92px; }
   #jump { right: calc(max(18px, env(safe-area-inset-right)) + 104px); bottom: max(22px, env(safe-area-inset-bottom)); width: 64px; height: 64px; }
+  @media (pointer: coarse) { #net { left: 16px; transform: none; } } /* clear of the JUMP button */
   #stick { position: fixed; width: 110px; height: 110px; margin: -55px 0 0 -55px; border-radius: 50%; border: 2px solid #ffffff77; background: #0002; pointer-events: none; }
   #stick i { position: absolute; left: 30px; top: 30px; width: 50px; height: 50px; border-radius: 50%; background: #ffffff88; }
 </style>
@@ -417,11 +418,12 @@ const tracers = Array.from({ length: 24 }, () => {
   m.visible = false; scene.add(m); return { m, life: 0 };
 });
 let nextTracer = 0;
-function tracer(a, b) {
+function tracer(a, b, mine = false) {
   const t = tracers[nextTracer++ % tracers.length], len = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
   t.m.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2); t.m.scale.set(0.05, 0.05, len); t.m.lookAt(b.x, b.y, b.z);
   t.m.visible = true; t.life = 0.12;
-  burst(b.x, b.y, b.z, "#f4f1e8", 5, 3); burst(a.x, a.y, a.z, "#ffd84d", 3, 2); // impact dust and a muzzle spark
+  burst(b.x, b.y, b.z, "#f4f1e8", 5, 3); // impact dust
+  if (!mine) burst(a.x, a.y, a.z, "#ffd84d", 3, 2); // a muzzle spark (your own gun has its flash: sparks there would fill your screen)
 }
 function tickEffects(dt) {
   for (let i = parts.length - 1; i >= 0; i--) {
@@ -574,7 +576,7 @@ function tickBots(dt, now, m) {
       if (seen && seen.id !== b.target) b.nextShot = Math.max(b.nextShot, now + 350 + Math.random() * 400); // reaction time
       b.target = seen ? seen.id : null;
       if (!seen && !b.path.length) {
-        const pack = b.hp < 60 && PACK_SPOTS.find((s, i) => host.packs[i][0] <= Date.now());
+        const pack = b.hp < 60 && PACK_SPOTS.filter((s, i) => host.packs[i][0] <= Date.now()).sort((p, q) => Math.hypot(p.x - b.x, p.z - b.z) - Math.hypot(q.x - b.x, q.z - b.z))[0]; // the nearest pack that's there
         const others = all.filter((f) => f.id !== b.id), foe = others[Math.floor(Math.random() * others.length)];
         b.path = findPath(b, pack || (foe && Math.random() < (ATTRACT ? 0.85 : 0.5) ? foe : OPEN[Math.floor(Math.random() * OPEN.length)]));
       }
@@ -665,7 +667,7 @@ function fire(now, moving) {
   const spread = CONFIG.spread + (moving || !me.ground ? CONFIG.moveSpread : 0), w = () => (Math.random() - 0.5) * 2 * spread;
   const shot = traceShot({ x: me.x, y: me.y + EYE, z: me.z }, dirOf(me.yaw + w(), me.pitch + w()), fighters().filter((f) => f.id !== net.sessionId));
   const tip = gunTip.getWorldPosition(new THREE.Vector3());
-  tracer(tip, shot.end); sfx("shot");
+  tracer(tip, shot.end, true); sfx("shot");
   net.send("shot", { o: [tip.x, tip.y, tip.z].map((n) => +n.toFixed(2)), e: [shot.end.x, shot.end.y, shot.end.z].map((n) => +n.toFixed(2)) });
   if (shot.hit) {
     damage(shot.hit.id, shot.head ? CONFIG.headDmg : CONFIG.dmg, net.sessionId, shot.head);
@@ -697,6 +699,7 @@ gun.add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.065, 0.34), new THREE.MeshS
 const gunStripe = new THREE.Mesh(new THREE.BoxGeometry(0.054, 0.018, 0.2), new THREE.MeshStandardMaterial({ color: myColor })); gunStripe.position.set(0, 0.03, 0.02); gun.add(gunStripe);
 const flash = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.07, 0.07), new THREE.MeshBasicMaterial({ color: "#fff3a0" })); flash.position.z = -0.2; gun.add(flash);
 gunTip.position.z = -0.18; gun.add(gunTip); camera.add(gun);
+gun.children.forEach((o, i) => { if (o.material) { o.material.depthTest = false; o.renderOrder = 10 + i; } }); // drawn over the world, so it never sinks into a wall you stand against
 
 // ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -766,6 +769,7 @@ $("play").onclick = () => {
 document.addEventListener("pointerlockchange", () => { locked = document.pointerLockElement === cv; if (!locked) input.fire = false; });
 document.addEventListener("pointerlockerror", () => { noLock = true; }); // no pointer lock here: drag with the mouse to look
 addEventListener("mousemove", (e) => { if (locked || (noLock && e.buttons)) look(e.movementX, e.movementY, CONFIG.look); });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
 cv.addEventListener("mousedown", (e) => { if (e.button === 0 && (locked || noLock)) input.fire = true; });
 addEventListener("mouseup", () => { input.fire = false; });
 // Touch: a floating stick on the left, drag anywhere else to look; FIRE can be dragged to aim while shooting.
