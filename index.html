@@ -34,6 +34,7 @@
   .card h2 { margin: 0 0 6px; font-size: 24px; }
   .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ffd23f; text-align: left; }
   .card ol { margin: 0; padding-left: 24px; font-size: 14px; text-align: left; }
+  .card li.note { list-style: none; margin-left: -24px; } /* a status line, not a numbered entry */
   .card li span { float: right; font-variant-numeric: tabular-nums; }
   .card li.me { color: #ffd23f; font-weight: 700; }
   .card p { margin: 10px 0 0; font-size: 13px; opacity: .8; }
@@ -65,7 +66,7 @@
 </div></div>
 <div class="screen" id="over" hidden><div class="card">
   <h2 id="winner"></h2><ol id="results"></ol>
-  <h3>Most frags in one match</h3><ol id="board"><li>Loading…</li></ol>
+  <h3>Most frags in one match</h3><ol id="board"><li class="note">Loading…</li></ol>
   <button class="go" id="again">Play again</button><p id="next"></p>
 </div></div>
 <script type="module">
@@ -733,11 +734,11 @@ function hud(m, now) {
 }
 function showBoard(m) {
   const list = $("board"), mine = m.frags[net.sessionId] || 0;
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
-  list.innerHTML = "<li>Loading…</li>";
+  if (!board) { list.innerHTML = "<li class='note'>Leaderboards need a connection.</li>"; return; }
+  list.innerHTML = "<li class='note'>Loading…</li>";
   (mine > 0 && me.submitted !== m.id ? board.submit(mine).catch(() => null) : Promise.resolve()).then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li>No frags yet. Score the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li class='note'>No frags yet. Score the first.</li>";
+  }).catch(() => { list.innerHTML = "<li class='note'>Couldn't load the leaderboard.</li>"; });
   me.submitted = m.id;
 }
 $("again").onclick = () => { const m = match(); if (m && m.phase === "over") { me.ready = m.id; net.me.set("rdy", m.id); } };
